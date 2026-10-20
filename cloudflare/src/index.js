@@ -7,6 +7,8 @@ const CODES = ["2301005428", "2301005399"];
 const URL = (code) => `https://www.gakuman-tokyo.com/maisoku?code=${code}`;
 // 通知する間取りタイプ（詳細の「間取り」欄。全角は半角にそろえて比較）
 const NOTIFY_TYPES = new Set(["A", "B", "C"]);
+// 読み取りの失敗がこの時間続いたら「監視が止まっている」と知らせる
+const ALERT_AFTER_MS = 30 * 60 * 1000;
 
 function text(s) {
   return s
@@ -102,6 +104,7 @@ async function pushOnce(env, title, message, url) {
 async function check(env, { test = false } = {}) {
   const before = (await env.STATE.get("state", "json")) || {};
   const state = structuredClone(before);
+  const problems = [];
 
   for (const code of CODES) {
     const url = URL(code);
@@ -112,9 +115,12 @@ async function check(env, { test = false } = {}) {
       parsed = parse(await res.text());
     } catch (e) {
       console.log(`${code}: 取得エラー ${e.message}`);
+      problems.push(`${code}: ${e.message}`);
       continue;
     }
     const { name, waiting, rooms } = parsed;
+    // 満室なら「空室待ち」表示になるので、どちらもないのはページの形が変わったとき
+    if (!waiting && !rooms.length) problems.push(`${code}: 空室待ちでも部屋一覧でもない`);
 
     const prev = new Set(state[code]?.rooms || []);
     const fresh = rooms.filter((r) => !prev.has(r.room));
@@ -146,8 +152,32 @@ async function check(env, { test = false } = {}) {
     };
   }
 
+  await trackProblems(env, state, problems);
+
   if (JSON.stringify(state) !== JSON.stringify(before)) {
     await env.STATE.put("state", JSON.stringify(state));
+  }
+}
+
+// 失敗が続いたら1回だけ知らせ、直ったらまた知らせる（KVへの書き込みは状態が変わったときだけ）
+async function trackProblems(env, state, problems) {
+  const err = state._error;
+  if (!problems.length) {
+    if (err?.alerted) await pushPhone(env, "空室チェックが復旧しました", "また1分おきにチェックしています", URL(CODES[0]));
+    delete state._error;
+    return;
+  }
+  const now = Date.now();
+  if (!err) {
+    state._error = { since: now };
+  } else if (!err.alerted && now - err.since >= ALERT_AFTER_MS) {
+    const ok = await pushPhone(
+      env,
+      "空室チェックが止まっています",
+      `30分以上ページを読み取れていません。\n${problems.join("\n")}`,
+      URL(CODES[0]),
+    );
+    if (ok) state._error = { ...err, alerted: true };
   }
 }
 
