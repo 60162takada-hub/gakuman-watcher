@@ -3,3 +3,6 @@ watch.log
 launchd.err
 state.bak
 __pycache__/
+cloudflare/node_modules/
+cloudflare/.wrangler/
+launchd.plist.disabled

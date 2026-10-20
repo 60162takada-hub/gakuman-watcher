@@ -1,0 +1,10 @@
+{
+  "name": "gakuman-watcher",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-01",
+  // 公開URLは不要（定期実行だけ）
+  "workers_dev": false,
+  "triggers": { "crons": ["* * * * *"] },
+  "kv_namespaces": [{ "binding": "STATE", "id": "bde5322bb08b49cfaaf41cec297ed877" }],
+  "observability": { "enabled": true }
+}
